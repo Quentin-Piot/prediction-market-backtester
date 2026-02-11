@@ -54,6 +54,23 @@ def _write_fixture_parquet(data_root: Path) -> None:
     trades_df.write_parquet(data_root / "kalshi" / "trades" / "trades_0_4.parquet")
 
 
+def _write_polymarket_trades_fixture(data_root: Path) -> None:
+    (data_root / "polymarket" / "trades").mkdir(parents=True, exist_ok=True)
+    trades_df = pl.DataFrame(
+        {
+            "condition_id": ["0xmarket1", "0xmarket1"],
+            "transaction_hash": ["0xabc", "0xdef"],
+            "log_index": [0, 1],
+            "maker_asset_id": ["0", "555"],
+            "taker_asset_id": ["555", "0"],
+            "maker_amount": [500_000, 200_000],
+            "taker_amount": [1_000_000, 400_000],
+            "_fetched_at": ["2026-01-01T09:00:00Z", "2026-01-01T09:01:00Z"],
+        }
+    )
+    trades_df.write_parquet(data_root / "polymarket" / "trades" / "trades_0_2.parquet")
+
+
 def test_load_markets_filters_market_id(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     _write_fixture_parquet(data_root)
@@ -83,3 +100,14 @@ def test_load_trades_filters_market_and_time_range(tmp_path: Path) -> None:
 
     assert result.height == 2
     assert set(result["trade_id"].to_list()) == {"t2", "t3"}
+
+
+def test_load_trades_polymarket_uses_condition_id_for_market_id(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    _write_polymarket_trades_fixture(data_root)
+
+    result = load_trades("polymarket", data_root=data_root).collect()
+
+    assert result.height == 2
+    assert set(result["market_id"].to_list()) == {"0xmarket1"}
+    assert set(result["outcome_id"].to_list()) == {"555"}

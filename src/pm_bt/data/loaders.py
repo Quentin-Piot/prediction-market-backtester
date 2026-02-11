@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from pathlib import Path
 
 import polars as pl
 
 from pm_bt.common.types import Venue
-
-logger = logging.getLogger(__name__)
 
 CANONICAL_MARKET_COLUMNS = [
     "market_id",
@@ -159,7 +156,16 @@ def _normalize_trades(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
         )
         # Use the non-zero asset_id as outcome_id (each token is a distinct outcome).
         outcome_id_expr = pl.when(is_buy).then(taker_asset).otherwise(maker_asset)
-        market_id_expr = outcome_id_expr
+        # Prefer condition_id as market identifier when present.
+        if "condition_id" in schema:
+            condition_id = _to_str("condition_id")
+            market_id_expr = (
+                pl.when(condition_id.str.len_chars() > 0)
+                .then(condition_id)
+                .otherwise(outcome_id_expr)
+            )
+        else:
+            market_id_expr = outcome_id_expr
 
         ts_expr = (
             pl.when(pl.col("_fetched_at").is_not_null())
@@ -167,11 +173,14 @@ def _normalize_trades(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
             .otherwise(pl.lit(None, dtype=pl.Datetime(time_zone="UTC")))
         )
 
-        fee_expr = (
-            pl.when(pl.col("fee").is_not_null())
-            .then(_to_float("fee") / pl.lit(1e6))
-            .otherwise(pl.lit(0.0))
-        )
+        if "fee" in schema:
+            fee_expr = (
+                pl.when(pl.col("fee").is_not_null())
+                .then(_to_float("fee") / pl.lit(1e6))
+                .otherwise(pl.lit(0.0))
+            )
+        else:
+            fee_expr = pl.lit(0.0)
 
         return lf.select(
             [
@@ -191,26 +200,6 @@ def _normalize_trades(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
         )
 
     raise ValueError(f"Unsupported trade schema for venue={venue.value}: {sorted(schema)}")
-
-
-def _warn_null_timestamps(lf: pl.LazyFrame, ts_column: str, context: str) -> pl.LazyFrame:
-    """Log a warning if null timestamps are detected after normalization.
-
-    Returns the input LazyFrame unchanged (side-effect: logs on collect).
-    To actually strip nulls, callers should filter explicitly.
-    """
-    # Materialize a count of nulls efficiently via a single-column scan.
-    null_count = int(
-        lf.select(pl.col(ts_column).is_null().sum().cast(pl.Int64)).collect().item(0, 0)  # pyright: ignore[reportAny]
-    )
-    if null_count > 0:
-        logger.warning(
-            "Null timestamps detected after normalization: %d rows with null '%s' (%s)",
-            null_count,
-            ts_column,
-            context,
-        )
-    return lf
 
 
 def _apply_market_filters(
@@ -273,5 +262,4 @@ def load_trades(
     base = Path(data_root) / venue_enum.value / "trades"
     lf = _scan_parquet_glob(base / "*.parquet")
     normalized = _normalize_trades(lf, venue_enum)
-    _ = _warn_null_timestamps(normalized, "ts", context=f"load_trades(venue={venue_enum.value})")
     return _apply_trade_filters(normalized, market_id=market_id, start_ts=start_ts, end_ts=end_ts)

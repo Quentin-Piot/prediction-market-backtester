@@ -50,7 +50,26 @@ fi
 
 echo "[setup] extracting ${DATA_ARCHIVE}"
 mkdir -p "$DATA_DIR"
-tar --zstd -xf "$DATA_ARCHIVE" -C .
+extract_tmp="${DATA_DIR}.extract_tmp"
+rm -rf "$extract_tmp"
+mkdir -p "$extract_tmp"
+tar --zstd -xf "$DATA_ARCHIVE" -C "$extract_tmp"
+
+source_root=""
+if [[ -d "${extract_tmp}/data" ]]; then
+  source_root="${extract_tmp}/data"
+elif [[ -d "${extract_tmp}/kalshi" || -d "${extract_tmp}/polymarket" ]]; then
+  source_root="${extract_tmp}"
+fi
+
+if [[ -z "$source_root" ]]; then
+  echo "[setup] unsupported archive root layout; expected data/ or venue directories"
+  rm -rf "$extract_tmp"
+  exit 1
+fi
+
+cp -a "${source_root}/." "${DATA_DIR}/"
+rm -rf "$extract_tmp"
 
 touch "$SETUP_MARKER"
 echo "[setup] complete"
