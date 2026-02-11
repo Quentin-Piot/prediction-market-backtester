@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+import polars as pl
+
+from pm_bt.data import load_markets, load_trades
+
+
+def _write_fixture_parquet(data_root: Path) -> None:
+    (data_root / "kalshi" / "markets").mkdir(parents=True, exist_ok=True)
+    (data_root / "kalshi" / "trades").mkdir(parents=True, exist_ok=True)
+
+    markets_df = pl.DataFrame(
+        {
+            "market_id": ["KX-RAIN-2026-01-01", "KX-TEMP-2026-01-02"],
+            "venue": ["kalshi", "kalshi"],
+            "outcome_id": ["yes", "yes"],
+            "question": ["Will NYC rain?", "Will NYC be above 5C?"],
+            "category": ["weather", "weather"],
+            "close_ts": ["2026-01-01T23:59:59Z", "2026-01-02T23:59:59Z"],
+            "resolved": [True, False],
+            "winning_outcome": ["yes", None],
+            "resolved_ts": ["2026-01-02T12:00:00Z", None],
+            "market_structure": ["clob", "clob"],
+        }
+    )
+    markets_df.write_parquet(data_root / "kalshi" / "markets" / "markets_0_2.parquet")
+
+    trades_df = pl.DataFrame(
+        {
+            "ts": [
+                "2026-01-01T09:00:00Z",
+                "2026-01-01T09:01:00Z",
+                "2026-01-01T09:02:00Z",
+                "2026-01-02T09:00:00Z",
+            ],
+            "market_id": [
+                "KX-RAIN-2026-01-01",
+                "KX-RAIN-2026-01-01",
+                "KX-RAIN-2026-01-01",
+                "KX-TEMP-2026-01-02",
+            ],
+            "outcome_id": ["yes", "yes", "yes", "yes"],
+            "venue": ["kalshi", "kalshi", "kalshi", "kalshi"],
+            "price": [0.44, 0.46, 0.45, 0.52],
+            "size": [100.0, 90.0, 80.0, 70.0],
+            "side": ["buy", "buy", "sell", "buy"],
+            "trade_id": ["t1", "t2", "t3", "t4"],
+            "fee_paid": [0.0, 0.0, 0.0, 0.0],
+        }
+    )
+    trades_df.write_parquet(data_root / "kalshi" / "trades" / "trades_0_4.parquet")
+
+
+def test_load_markets_filters_market_id(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    _write_fixture_parquet(data_root)
+
+    result = load_markets(
+        "kalshi",
+        data_root=data_root,
+        market_id="KX-RAIN-2026-01-01",
+    ).collect()
+
+    assert result.height == 1
+    assert result["market_id"][0] == "KX-RAIN-2026-01-01"
+    assert result["resolved"][0] is True
+
+
+def test_load_trades_filters_market_and_time_range(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    _write_fixture_parquet(data_root)
+
+    result = load_trades(
+        "kalshi",
+        data_root=data_root,
+        market_id="KX-RAIN-2026-01-01",
+        start_ts=datetime(2026, 1, 1, 9, 1, 0, tzinfo=UTC),
+        end_ts=datetime(2026, 1, 1, 9, 2, 0, tzinfo=UTC),
+    ).collect()
+
+    assert result.height == 2
+    assert set(result["trade_id"].to_list()) == {"t2", "t3"}

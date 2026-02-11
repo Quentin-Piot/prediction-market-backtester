@@ -1,0 +1,9 @@
+ts,market_id,outcome_id,venue,price,size,side,trade_id,fee_paid
+2026-01-01T09:00:00Z,KX-RAIN-2026-01-01,yes,kalshi,0.44,120,buy,kalshi_t1,0.00
+2026-01-01T09:01:00Z,KX-RAIN-2026-01-01,yes,kalshi,0.46,80,buy,kalshi_t2,0.00
+2026-01-01T09:02:00Z,KX-RAIN-2026-01-01,yes,kalshi,0.45,60,sell,kalshi_t3,0.00
+2026-01-01T09:03:00Z,KX-RAIN-2026-01-01,yes,kalshi,0.49,140,buy,kalshi_t4,0.00
+2026-10-01T10:00:00Z,PM-ELECT-STATE-X,yes,polymarket,0.57,200,buy,pm_t1,0.01
+2026-10-01T10:01:00Z,PM-ELECT-STATE-X,yes,polymarket,0.55,160,sell,pm_t2,0.01
+2026-10-01T10:02:00Z,PM-ELECT-STATE-X,yes,polymarket,0.58,110,buy,pm_t3,0.01
+2026-10-01T10:03:00Z,PM-ELECT-STATE-X,yes,polymarket,0.56,90,sell,pm_t4,0.01

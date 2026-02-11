@@ -212,6 +212,9 @@ __marimo__/
 .vscode
 .skills
 
+# macOS
+.DS_Store
+
 # Project data artifacts
 data/
 data.tar.zst
