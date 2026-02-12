@@ -33,7 +33,6 @@ class Market(DomainModel):
     winning_outcome: ResolutionOutcome | None = None
     resolved_ts: datetime | None = None
     market_structure: MarketStructure = MarketStructure.UNKNOWN
-    metadata: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_resolution_fields(self) -> Market:
@@ -56,7 +55,6 @@ class TradeTick(DomainModel):
     side: TradeSide = TradeSide.UNKNOWN
     trade_id: str | None = None
     fee_paid: float = Field(default=0.0, ge=0.0)
-    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class Bar(DomainModel):

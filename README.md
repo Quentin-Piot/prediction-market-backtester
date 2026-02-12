@@ -9,19 +9,6 @@ Quant-style backtesting engine for prediction markets (Polymarket + Kalshi), foc
 - Prioritize correctness, reproducibility, and explicit execution assumptions.
 - Keep strategy/execution/accounting logic in the engine (CLI/API), not in UI code.
 
-## Domain First: Prediction Markets != Traditional Markets
-
-This project treats prediction markets as a distinct domain with different mechanics from traditional financial markets:
-
-- Binary settlement (`0/1`) and event resolution, instead of indefinite mark-to-market assets.
-- Prices interpreted as market-implied probabilities, which can deviate from true probabilities due to microstructure and liquidity effects.
-- Thin/uneven liquidity and episodic flow around news/events, requiring careful tradability assumptions.
-- Outcome structure (Yes/No, mutually exclusive outcomes) that creates market-consistency checks.
-- Market structure can vary by venue and era (for example CLOB-style vs AMM-style execution assumptions).
-- Forecasting quality metrics (Brier/log loss) are tracked separately from trading performance metrics (PnL/drawdown).
-
-A dedicated note is available in `docs/prediction-markets-vs-tradfi.md`.
-
 ## Quickstart
 
 ```bash
@@ -30,6 +17,83 @@ make lint
 make typecheck
 make test
 ```
+
+## Running a Backtest
+
+Use the `pm-bt backtest` command to run a single-market backtest:
+
+```bash
+pm-bt backtest \
+  --venue kalshi \
+  --market KXPGATOUR-APIPBM25-CMOR \
+  --strategy momentum \
+  --config configs/momentum/default.yaml \
+  --start-ts 2025-03-03T00:00:00Z \
+  --end-ts 2025-03-10T00:00:00Z \
+  --bar-timeframe 5m
+```
+
+### Required arguments
+
+| Argument | Description |
+|---|---|
+| `--venue` | `kalshi` or `polymarket` |
+| `--market` | Market identifier (e.g., `KXPGATOUR-APIPBM25-CMOR` for Kalshi) |
+| `--strategy` | Strategy name: `momentum`, `mean_reversion`, or `event_threshold` |
+
+### Optional arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--config` | `configs/<strategy>/default.yaml` | Path to a YAML config file. CLI arguments override YAML values. |
+| `--start-ts` | None (all data) | Start of the backtest window (ISO 8601) |
+| `--end-ts` | None (all data) | End of the backtest window (ISO 8601) |
+| `--bar-timeframe` | `1m` | Bar aggregation period (`1m`, `5m`, `1h`, etc.) |
+| `--data-root` | `data` | Path to the data directory |
+| `--output-root` | `output/runs` | Path where run artifacts are written |
+| `--name` | `default` | Human-readable run name |
+
+### Output artifacts
+
+Each run produces a directory under `<output-root>/<run-id>/` containing:
+
+- **`results.json`** — full run metadata: config, git commit hash, timings, and trading metrics (total PnL, max drawdown, realized/unrealized PnL, turnover, fill count)
+- **`equity.csv`** — per-bar equity curve with cash, realized PnL, unrealized PnL, gross notional exposure, and cash-at-risk
+- **`trades.csv`** — every fill with timestamp, side, quantity, price, fees, slippage cost, and latency
+
+### Strategy configs
+
+Default YAML configs are provided under `configs/`:
+
+```
+configs/
+├── momentum/default.yaml         # threshold: 0.03, qty: 5.0
+├── mean_reversion/default.yaml   # move_threshold: 0.02, qty: 5.0
+└── event_threshold/default.yaml  # price_jump_threshold: 0.05, min_volume: 100.0, qty: 5.0
+```
+
+### Examples
+
+```bash
+# Momentum strategy with default config
+pm-bt backtest --venue kalshi --market PRES-2024-DJT --strategy momentum
+
+# Mean reversion on a 1-hour timeframe with custom time range
+pm-bt backtest --venue kalshi --market PRES-2024-DJT --strategy mean_reversion \
+  --bar-timeframe 1h --start-ts 2024-06-01T00:00:00Z --end-ts 2024-11-06T00:00:00Z
+
+# Event threshold with a custom config file
+pm-bt backtest --venue kalshi --market PRES-2024-DJT --strategy event_threshold \
+  --config my_custom_config.yaml --output-root /tmp/my-runs
+```
+
+### Error handling
+
+The CLI returns exit code `0` on success and `1` on failure. Error messages include the full traceback for debugging. Common failures:
+- Unknown strategy name
+- Missing or invalid config file
+- No trade data found for the specified market/time range
+- Invalid date range (`start_ts >= end_ts`)
 
 ## Data Setup
 
@@ -69,8 +133,3 @@ Notes:
 - `src/pm_bt/backtest/`: engine and metrics
 - `src/pm_bt/reporting/`: artifacts and plots
 - `vendor/prediction-market-analysis/`: vendored data indexers/schemas reference (MIT)
-
-## Roadmap
-
-- Build plan and acceptance criteria: `ROADMAP.md`
-- Scope and engineering rules: `SKILLS.md`

@@ -1,0 +1,4 @@
+strategy_name: momentum
+strategy_params:
+  threshold: 0.03
+  qty: 5.0

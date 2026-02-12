@@ -219,3 +219,6 @@ __marimo__/
 /data/
 data.tar.zst
 *.tar.zst
+
+# Backtest run output
+/output/

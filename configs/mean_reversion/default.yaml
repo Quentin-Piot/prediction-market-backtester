@@ -1,0 +1,4 @@
+strategy_name: mean_reversion
+strategy_params:
+  move_threshold: 0.02
+  qty: 5.0

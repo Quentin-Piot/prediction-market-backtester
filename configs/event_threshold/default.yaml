@@ -1,0 +1,5 @@
+strategy_name: event_threshold
+strategy_params:
+  price_jump_threshold: 0.05
+  min_volume: 100.0
+  qty: 5.0
