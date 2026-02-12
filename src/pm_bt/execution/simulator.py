@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Self
 
 from pydantic import Field
 
@@ -19,10 +20,14 @@ class ExecutionConfig(DomainModel):
     default_spread: float = Field(default=0.02, ge=0.0, le=1.0)
     latency_bars: int = Field(default=0, ge=0)
     max_position_size: float = Field(default=100.0, gt=0.0)
-    max_gross_exposure: float = Field(default=10_000.0, gt=0.0)
+    max_gross_exposure: float = Field(
+        default=10_000.0,
+        gt=0.0,
+        description="Gross cash-at-risk limit for binary payoff contracts.",
+    )
 
     @classmethod
-    def from_backtest_config(cls, config: BacktestConfig) -> ExecutionConfig:
+    def from_backtest_config(cls, config: BacktestConfig) -> Self:
         return cls(
             fee_bps=config.fee_bps,
             slippage_bps=config.slippage_bps,
@@ -32,7 +37,8 @@ class ExecutionConfig(DomainModel):
         )
 
 
-class MarketSnapshot(DomainModel):
+@dataclass(slots=True)
+class MarketSnapshot:
     """Point-in-time market state used by the execution simulator.
 
     mid_price is clamped to [0, 1] as prediction market prices represent
@@ -44,17 +50,26 @@ class MarketSnapshot(DomainModel):
     ts: datetime
     market_id: str
     outcome_id: str
-    mid_price: float = Field(ge=0.0, le=1.0)
-    spread: float | None = Field(default=None, ge=0.0, le=1.0)
-    recent_volume: float | None = Field(default=None, ge=0.0)
+    mid_price: float
+    spread: float | None = None
+    recent_volume: float | None = None
     recent_prices: Sequence[float] | None = None
 
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.mid_price <= 1.0):
+            raise ValueError("mid_price must be within [0, 1]")
+        if self.spread is not None and not (0.0 <= self.spread <= 1.0):
+            raise ValueError("spread must be within [0, 1] when provided")
+        if self.recent_volume is not None and self.recent_volume < 0.0:
+            raise ValueError("recent_volume must be >= 0 when provided")
 
-class AccountState(DomainModel):
+
+@dataclass(slots=True)
+class AccountState:
     """Mutable account state tracked by the simulator."""
 
     cash: float = 10_000.0
-    positions: dict[PositionKey, float] = Field(default_factory=dict)
+    positions: dict[PositionKey, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -97,12 +112,17 @@ class ExecutionSimulator:
     def current_position(self, market_id: str, outcome_id: str) -> float:
         return self.state.positions.get((market_id, outcome_id), 0.0)
 
-    def current_gross_exposure(self) -> float:
+    def current_cash_at_risk_gross(self) -> float:
+        """Return gross exposure as cash-at-risk under binary payoff semantics."""
         gross = 0.0
         for key, position in self.state.positions.items():
             reference_price = self._last_prices.get(key, 0.0)
-            gross += abs(position) * reference_price
+            gross += self._position_cash_at_risk(position, reference_price)
         return gross
+
+    def current_gross_exposure(self) -> float:
+        """Backward-compatible alias for gross cash-at-risk."""
+        return self.current_cash_at_risk_gross()
 
     def execute_bar(
         self,
@@ -266,36 +286,35 @@ class ExecutionSimulator:
         if max_qty <= 0.0:
             return 0.0
 
-        if self.current_gross_exposure() >= self.config.max_gross_exposure:
+        if self.current_cash_at_risk_gross() >= self.config.max_gross_exposure:
             return 0.0
 
-        return self._max_qty_under_gross(
+        return self._max_qty_under_cash_at_risk(
             key=key,
             side=side,
             candidate_qty=max_qty,
-            reference_price=reference_price,
+            risk_price=reference_price,
         )
 
-    def _max_qty_under_gross(
+    def _max_qty_under_cash_at_risk(
         self,
         *,
         key: PositionKey,
         side: OrderSide,
         candidate_qty: float,
-        reference_price: float,
+        risk_price: float,
     ) -> float:
         current_position = self.state.positions.get(key, 0.0)
 
         def gross_with(qty: float) -> float:
-            current_abs = abs(current_position)
             if side == OrderSide.BUY:
                 new_position = current_position + qty
             else:
                 new_position = current_position - qty
-            new_abs = abs(new_position)
-
-            base_gross = self.current_gross_exposure()
-            return base_gross - (current_abs * reference_price) + (new_abs * reference_price)
+            base_gross = self.current_cash_at_risk_gross()
+            current_risk = self._position_cash_at_risk(current_position, risk_price)
+            new_risk = self._position_cash_at_risk(new_position, risk_price)
+            return base_gross - current_risk + new_risk
 
         if gross_with(candidate_qty) <= self.config.max_gross_exposure:
             return candidate_qty
@@ -310,3 +329,12 @@ class ExecutionSimulator:
                 right = mid
 
         return max(0.0, left)
+
+    @staticmethod
+    def _position_cash_at_risk(position: float, probability: float) -> float:
+        p = _clamp_probability(probability)
+        if position >= 0.0:
+            # Long YES loses when outcome resolves NO.
+            return position * (1.0 - p)
+        # Short YES loses when outcome resolves YES.
+        return abs(position) * p

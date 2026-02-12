@@ -138,7 +138,31 @@ def test_execution_constraints_prevent_overbuy_from_max_exposure() -> None:
 
     assert len(fills) == 1
     _assert_close(fills[0].qty_filled, 10.0)
+    _assert_close(sim.current_cash_at_risk_gross(), 5.0)
     _assert_close(sim.current_gross_exposure(), 5.0)
+
+
+def test_execution_cash_at_risk_for_short_yes_position() -> None:
+    sim = ExecutionSimulator(
+        ExecutionConfig(
+            max_position_size=100.0,
+            max_gross_exposure=10_000.0,
+            default_spread=0.0,
+        ),
+        initial_cash=1_000.0,
+    )
+    ts = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+
+    fills = sim.execute_bar(
+        bar_index=0,
+        snapshot=_snapshot(ts, mid=0.60, spread=0.0),
+        incoming_orders=[_order(ts, OrderSide.SELL, 10.0)],
+    )
+
+    assert len(fills) == 1
+    _assert_close(sim.current_position("KX-RAIN-2026-01-01", "yes"), -10.0)
+    # Short YES risk is p * |qty| when mark probability is p.
+    _assert_close(sim.current_cash_at_risk_gross(), 6.0)
 
 
 def test_execution_uses_size_based_slippage_when_configured() -> None:

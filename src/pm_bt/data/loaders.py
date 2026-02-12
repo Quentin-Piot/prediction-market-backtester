@@ -157,14 +157,14 @@ def _normalize_markets(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
 _TRADE_REQUIRED_COLUMNS = ["ts", "price", "size"]
 
 
-def _warn_and_drop_null_trades(lf: pl.LazyFrame) -> pl.LazyFrame:
+def _drop_null_trades_required_fields(lf: pl.LazyFrame) -> pl.LazyFrame:
     """Drop trade rows where required columns (ts, price, size) are null.
 
     Nulls in these columns are produced by strict=False casts on corrupt data.
     Filtering is expressed as a lazy predicate so Polars can push it down.
-    Callers should enable logging to see warnings about dropped rows.
+    This helper is intentionally silent to avoid eager counting/materialization.
     """
-    has_null = pl.any_horizontal(pl.col(c).is_null() for c in _TRADE_REQUIRED_COLUMNS)
+    has_null = pl.any_horizontal([pl.col(c).is_null() for c in _TRADE_REQUIRED_COLUMNS])
     return lf.filter(~has_null)
 
 
@@ -185,7 +185,7 @@ def _normalize_trades(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
                 _to_float("fee_paid").fill_null(0.0).alias("fee_paid"),
             ]
         )
-        return _warn_and_drop_null_trades(casted)
+        return _drop_null_trades_required_fields(casted)
 
     if venue == Venue.KALSHI and {"ticker", "created_time", "yes_price", "count"}.issubset(schema):
         # Kalshi taker_side uses "yes"/"no" to indicate which side the taker bought.
@@ -197,7 +197,7 @@ def _normalize_trades(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
             .then(pl.lit("sell"))
             .otherwise(pl.lit("unknown"))
         )
-        return _warn_and_drop_null_trades(
+        return _drop_null_trades_required_fields(
             lf.select(
                 [
                     _coerce_utc_datetime("created_time", schema, dtypes).alias("ts"),
@@ -267,7 +267,7 @@ def _normalize_trades(lf: pl.LazyFrame, venue: Venue) -> pl.LazyFrame:
         else:
             fee_expr = pl.lit(0.0)
 
-        return _warn_and_drop_null_trades(
+        return _drop_null_trades_required_fields(
             lf.select(
                 [
                     ts_expr.alias("ts"),
