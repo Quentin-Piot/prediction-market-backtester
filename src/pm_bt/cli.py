@@ -26,6 +26,13 @@ from pm_bt.reporting import (
     compute_calibration_metrics_from_fills_and_markets,
     generate_report,
 )
+from pm_bt.scanner import (
+    ScannerConfig,
+    run_scanner,
+    write_alerts_csv,
+    write_alerts_html,
+    write_alerts_json,
+)
 from pm_bt.strategies import EventThresholdStrategy, MeanReversionStrategy, MomentumStrategy
 from pm_bt.strategies.base import Strategy
 
@@ -474,6 +481,66 @@ def _run_batch(args: argparse.Namespace) -> int:
         return 1
 
 
+def _build_scan_config(args: argparse.Namespace) -> ScannerConfig:
+    """Build ScannerConfig from CLI args + optional YAML config file."""
+    config_path = cast(str | None, getattr(args, "config", None))
+    config_data: dict[str, object] = {}
+    if config_path:
+        config_data = _load_yaml_config(Path(config_path))
+
+    config_data["data_root"] = Path(cast(str, args.data_root))
+    config_data["output_dir"] = Path(cast(str, args.output_dir))
+
+    raw_venues = cast(list[str] | None, getattr(args, "venues", None))
+    if raw_venues:
+        config_data["venues"] = [Venue(v) for v in raw_venues]
+
+    raw_market_ids = cast(list[str] | None, getattr(args, "market_ids", None))
+    if raw_market_ids:
+        config_data["market_ids"] = raw_market_ids
+
+    start_ts = cast(str | None, getattr(args, "start_ts", None))
+    end_ts = cast(str | None, getattr(args, "end_ts", None))
+    if start_ts:
+        config_data["start_ts"] = parse_ts_utc(start_ts)
+    if end_ts:
+        config_data["end_ts"] = parse_ts_utc(end_ts)
+
+    for cli_key in (
+        "top_n",
+        "complement_sum_tolerance",
+        "mutually_exclusive_tolerance",
+        "whale_rolling_window",
+        "whale_size_multiplier",
+        "impact_score_threshold",
+    ):
+        val = getattr(args, cli_key, None)
+        if val is not None:
+            config_data[cli_key] = val
+
+    if getattr(args, "emit_html", False):
+        config_data["emit_html"] = True
+
+    return ScannerConfig.model_validate(config_data)
+
+
+def _run_scan(args: argparse.Namespace) -> int:
+    """Handler for ``pm-bt scan``."""
+    try:
+        config = _build_scan_config(args)
+        safe_mkdir(config.output_dir)
+        alerts = run_scanner(config)
+        write_alerts_json(alerts, config.output_dir / "alerts.json")
+        write_alerts_csv(alerts, config.output_dir / "alerts.csv")
+        if config.emit_html:
+            write_alerts_html(alerts, config.output_dir / "alerts.html")
+        logger.info("Scan complete. %d alert(s) written to %s", len(alerts), config.output_dir)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Scan failed: %s", exc)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pm-bt")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -507,6 +574,25 @@ def build_parser() -> argparse.ArgumentParser:
     _ = batch.add_argument("--max-gap-minutes", type=float, default=720.0)
     _ = batch.add_argument("--resume", action="store_true")
     _ = batch.set_defaults(handler=_run_batch)
+
+    scan = subparsers.add_parser("scan", help="Run alpha scanner and produce alerts")
+    _ = scan.add_argument("--config", required=False)
+    _ = scan.add_argument("--data-root", default="data")
+    _ = scan.add_argument("--output-dir", default="output/scans")
+    _ = scan.add_argument("--venues", nargs="+", choices=[v.value for v in Venue])
+    _ = scan.add_argument("--market-ids", nargs="+")
+    _ = scan.add_argument("--top-n", type=int, dest="top_n")
+    _ = scan.add_argument("--start-ts", required=False)
+    _ = scan.add_argument("--end-ts", required=False)
+    _ = scan.add_argument("--complement-sum-tolerance", type=float, dest="complement_sum_tolerance")
+    _ = scan.add_argument(
+        "--mutually-exclusive-tolerance", type=float, dest="mutually_exclusive_tolerance"
+    )
+    _ = scan.add_argument("--whale-rolling-window", type=str, dest="whale_rolling_window")
+    _ = scan.add_argument("--whale-size-multiplier", type=float, dest="whale_size_multiplier")
+    _ = scan.add_argument("--impact-score-threshold", type=float, dest="impact_score_threshold")
+    _ = scan.add_argument("--emit-html", action="store_true")
+    _ = scan.set_defaults(handler=_run_scan)
     return parser
 
 

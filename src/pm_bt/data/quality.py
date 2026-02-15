@@ -133,8 +133,10 @@ def evaluate_market_trade_quality(
         failed_checks.append("price_min_below_zero")
     if price_max is not None and price_max > 1.0:
         failed_checks.append("price_max_above_one")
-    if out_of_order_count > 0:
-        failed_checks.append("timestamps_out_of_order")
+    # NOTE: timestamps_out_of_order is tracked as a stat but does NOT fail the
+    # quality gate.  Parquet files from the upstream indexer are partitioned by
+    # batch, not by time, so out-of-order rows are expected.  Downstream code
+    # (bar builder, engine) always sorts by ts before processing.
     if largest_gap_minutes > max_gap_minutes:
         failed_checks.append("timestamp_gap_too_large")
 

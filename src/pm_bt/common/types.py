@@ -33,9 +33,16 @@ class ResolutionOutcome(StrEnum):
     UNRESOLVED = "unresolved"
 
 
+class AlertSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 MarketId = str
 OutcomeId = str
 RunId = str
+AlertId = str
 Timestamp = datetime
 Probability = float
 Price = float

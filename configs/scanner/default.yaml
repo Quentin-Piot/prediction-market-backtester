@@ -1,0 +1,6 @@
+complement_sum_tolerance: 0.05
+mutually_exclusive_tolerance: 0.10
+whale_rolling_window: "1h"
+whale_size_multiplier: 20.0
+impact_score_threshold: 0.05
+emit_html: false
